@@ -1,0 +1,6 @@
+## Interface: 11200
+## Title: BuzzKill
+## Notes: Auto-remove selected buffs; profiles; use /buzzkill or /bk to open.
+## SavedVariables: ABR_BuffsList ABR_Profiles ABR_ActiveProfileName
+
+Buzzkill.lua
