@@ -1,5 +1,5 @@
 --=========================
--- AutoBuffRemover (ABR) for WoW 1.12
+-- AutoBuffRemover (ABR) for WoW 1.12 — English strings
 --=========================
 
 -- Tooltip for buff names (WoW 1.12 trick)
@@ -204,7 +204,7 @@ ABR_HookScript(ABR_Content, "OnHide", ABR_Dropdown_Hide)
 local ABR_SaveBtn = CreateFrame("Button", nil, ABR_Content, "UIPanelButtonTemplate")
 ABR_SaveBtn:SetPoint("LEFT", ABR_ProfileDDButton, "RIGHT", 8, 25)
 ABR_SaveBtn:SetWidth(80); ABR_SaveBtn:SetHeight(22)
-ABR_SaveBtn:SetText("Speichern")
+ABR_SaveBtn:SetText("Save")
 ABR_SaveBtn:SetScript("OnClick", function()
     ABR_SaveProfile(ABR_ProfileEdit:GetText())
 end)
@@ -212,7 +212,7 @@ end)
 local ABR_ActivateBtn = CreateFrame("Button", nil, ABR_Content, "UIPanelButtonTemplate")
 ABR_ActivateBtn:SetPoint("LEFT", ABR_SaveBtn, "BOTTOMLEFT", 0, -13)
 ABR_ActivateBtn:SetWidth(80); ABR_ActivateBtn:SetHeight(22)
-ABR_ActivateBtn:SetText("Aktivieren")
+ABR_ActivateBtn:SetText("Activate")
 ABR_ActivateBtn:SetScript("OnClick", function()
     ABR_ActivateProfile(ABR_SelectedProfileName or ABR_ActiveProfileName)
 end)
@@ -220,7 +220,7 @@ end)
 local ABR_DeleteBtn = CreateFrame("Button", nil, ABR_Content, "UIPanelButtonTemplate")
 ABR_DeleteBtn:SetPoint("LEFT", ABR_ActivateBtn, "BOTTOMLEFT", 0, -13)
 ABR_DeleteBtn:SetWidth(80); ABR_DeleteBtn:SetHeight(22)
-ABR_DeleteBtn:SetText("Löschen")
+ABR_DeleteBtn:SetText("Delete")
 ABR_DeleteBtn:SetScript("OnClick", function()
     local name = ABR_SelectedProfileName or ABR_ProfileEdit:GetText()
     ABR_DeleteProfile(name)
@@ -257,15 +257,15 @@ end)
 
 function ABR_SaveProfile(name)
     -- Trim name (Lua 5.0)
-    if name then name = string.gsub(name, "^%s*(.-)%s*$", "%1") end
+    if name then name = string.gsub(name, "^%s*(.-)%s$", "%1") end
 
     if not name or name == "" then
-        DEFAULT_CHAT_FRAME:AddMessage("|cffff8080ABR: Profilname fehlt.|r")
+        DEFAULT_CHAT_FRAME:AddMessage("|cffff8080ABR: Profile name missing.|r")
         return
     end
 
     if name == "Standard" then
-        DEFAULT_CHAT_FRAME:AddMessage("|cffff8080ABR: Das Profil 'Standard' kann nicht überschrieben werden.|r")
+        DEFAULT_CHAT_FRAME:AddMessage("|cffff8080ABR: The 'Standard' profile cannot be overwritten.|r")
         return
     end
 
@@ -274,12 +274,12 @@ function ABR_SaveProfile(name)
     ABR_Profiles[name] = ABR_ShallowCopy(ABR_BuffsList)
     ABR_SelectedProfileName = name
     if ABR_ProfileUI_Refresh then ABR_ProfileUI_Refresh() end
-    DEFAULT_CHAT_FRAME:AddMessage("|cff80ff80ABR: Profil gespeichert:|r "..name)
+    DEFAULT_CHAT_FRAME:AddMessage("|cff80ff80ABR: Profile saved:|r "..name)
 end
 
 function ABR_ActivateProfile(name)
     if not name or not ABR_Profiles[name] then
-        DEFAULT_CHAT_FRAME:AddMessage("|cffff8080ABR: Profil existiert nicht.|r")
+        DEFAULT_CHAT_FRAME:AddMessage("|cffff8080ABR: Profile does not exist.|r")
         return
     end
     ABR_ActiveProfileName = name
@@ -287,17 +287,17 @@ function ABR_ActivateProfile(name)
     if ABR_RestoreChecks then ABR_RestoreChecks() end
     ABR_SelectedProfileName = name
     if ABR_ProfileUI_Refresh then ABR_ProfileUI_Refresh() end
-    DEFAULT_CHAT_FRAME:AddMessage("|cff80ff80ABR: Profil aktiviert:|r "..name)
+    DEFAULT_CHAT_FRAME:AddMessage("|cff80ff80ABR: Profile activated:|r "..name)
 end
 
 function ABR_DeleteProfile(name)
     if not name or not ABR_Profiles[name] then
-        DEFAULT_CHAT_FRAME:AddMessage("|cffff8080ABR: Profil nicht gefunden.|r")
+        DEFAULT_CHAT_FRAME:AddMessage("|cffff8080ABR: Profile not found.|r")
         return
     end
 
     if name == "Standard" then
-        DEFAULT_CHAT_FRAME:AddMessage("|cffff8080ABR: Das Profil 'Standard' kann nicht gelöscht werden.|r")
+        DEFAULT_CHAT_FRAME:AddMessage("|cffff8080ABR: The 'Standard' profile cannot be deleted.|r")
         return
     end
 
@@ -305,13 +305,13 @@ function ABR_DeleteProfile(name)
         ABR_ActiveProfileName = "Standard"
         ABR_BuffsList = ABR_ShallowCopy(ABR_Profiles["Standard"])
         if ABR_RestoreChecks then ABR_RestoreChecks() end
-        DEFAULT_CHAT_FRAME:AddMessage("|cffffff00ABR: Aktives Profil gelöscht → 'Standard' aktiviert.|r")
+        DEFAULT_CHAT_FRAME:AddMessage("|cffffff00ABR: Active profile deleted → 'Standard' activated.|r")
     end
 
     ABR_Profiles[name] = nil
     ABR_SelectedProfileName = ABR_ActiveProfileName or "Standard"
     if ABR_ProfileUI_Refresh then ABR_ProfileUI_Refresh() end
-    DEFAULT_CHAT_FRAME:AddMessage("|cff80ff80ABR: Profil gelöscht:|r "..name)
+    DEFAULT_CHAT_FRAME:AddMessage("|cff80ff80ABR: Profile deleted:|r "..name)
 end
 
 
