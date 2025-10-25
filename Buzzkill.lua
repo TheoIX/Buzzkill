@@ -422,7 +422,6 @@ SlashCmdList["BUZZKILL"] = function()
         ABR_Frame:Show()
     end
 end
-end
 
 function ABR_RestoreChecks()
     if not ABR_BuffsList then return end
