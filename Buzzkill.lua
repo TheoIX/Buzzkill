@@ -10,6 +10,19 @@ ABR_BuffsList = ABR_BuffsList or {}
 ABR_Profiles = ABR_Profiles or {}
 ABR_ActiveProfileName = ABR_ActiveProfileName or "Standard"
 
+-- Notification toggle (saved). Default: silent.
+ABR_NotifyEnabled = (ABR_NotifyEnabled ~= nil) and ABR_NotifyEnabled or false
+
+local function ABR_Notify(msg, force)
+    if force or ABR_NotifyEnabled then
+        if DEFAULT_CHAT_FRAME and DEFAULT_CHAT_FRAME.AddMessage then
+            ABR_Notify(msg)
+        elseif ChatFrame1 and ChatFrame1.AddMessage then
+            ChatFrame1:AddMessage(msg)
+        end
+    end
+end
+
 local function ABR_ShallowCopy(src)
     local t = {}
     if src then for k,v in pairs(src) do t[k]=v end end
@@ -49,7 +62,7 @@ function ABR_RemoveBuffByIndex(index)
     local buffName = ABR_GetBuffName(index)
     if buffName then
         CancelPlayerBuff(index)
-        print("ABR: Removed Buff - " .. buffName)
+        ABR_Notify("ABR: Removed Buff - " .. buffName)
     end
 end
 
@@ -260,12 +273,12 @@ function ABR_SaveProfile(name)
     if name then name = string.gsub(name, "^%s*(.-)%s$", "%1") end
 
     if not name or name == "" then
-        DEFAULT_CHAT_FRAME:AddMessage("|cffff8080ABR: Profile name missing.|r")
+        ABR_Notify("|cffff8080ABR: Profile name missing.|r")
         return
     end
 
     if name == "Standard" then
-        DEFAULT_CHAT_FRAME:AddMessage("|cffff8080ABR: The 'Standard' profile cannot be overwritten.|r")
+        ABR_Notify("|cffff8080ABR: The 'Standard' profile cannot be overwritten.|r")
         return
     end
 
@@ -274,12 +287,12 @@ function ABR_SaveProfile(name)
     ABR_Profiles[name] = ABR_ShallowCopy(ABR_BuffsList)
     ABR_SelectedProfileName = name
     if ABR_ProfileUI_Refresh then ABR_ProfileUI_Refresh() end
-    DEFAULT_CHAT_FRAME:AddMessage("|cff80ff80ABR: Profile saved:|r "..name)
+    ABR_Notify("|cff80ff80ABR: Profile saved:|r "..name)
 end
 
 function ABR_ActivateProfile(name)
     if not name or not ABR_Profiles[name] then
-        DEFAULT_CHAT_FRAME:AddMessage("|cffff8080ABR: Profile does not exist.|r")
+        ABR_Notify("|cffff8080ABR: Profile does not exist.|r")
         return
     end
     ABR_ActiveProfileName = name
@@ -287,17 +300,17 @@ function ABR_ActivateProfile(name)
     if ABR_RestoreChecks then ABR_RestoreChecks() end
     ABR_SelectedProfileName = name
     if ABR_ProfileUI_Refresh then ABR_ProfileUI_Refresh() end
-    DEFAULT_CHAT_FRAME:AddMessage("|cff80ff80ABR: Profile activated:|r "..name)
+    ABR_Notify("|cff80ff80ABR: Profile activated:|r "..name)
 end
 
 function ABR_DeleteProfile(name)
     if not name or not ABR_Profiles[name] then
-        DEFAULT_CHAT_FRAME:AddMessage("|cffff8080ABR: Profile not found.|r")
+        ABR_Notify("|cffff8080ABR: Profile not found.|r")
         return
     end
 
     if name == "Standard" then
-        DEFAULT_CHAT_FRAME:AddMessage("|cffff8080ABR: The 'Standard' profile cannot be deleted.|r")
+        ABR_Notify("|cffff8080ABR: The 'Standard' profile cannot be deleted.|r")
         return
     end
 
@@ -305,13 +318,13 @@ function ABR_DeleteProfile(name)
         ABR_ActiveProfileName = "Standard"
         ABR_BuffsList = ABR_ShallowCopy(ABR_Profiles["Standard"])
         if ABR_RestoreChecks then ABR_RestoreChecks() end
-        DEFAULT_CHAT_FRAME:AddMessage("|cffffff00ABR: Active profile deleted → 'Standard' activated.|r")
+        ABR_Notify("|cffffff00ABR: Active profile deleted → 'Standard' activated.|r")
     end
 
     ABR_Profiles[name] = nil
     ABR_SelectedProfileName = ABR_ActiveProfileName or "Standard"
     if ABR_ProfileUI_Refresh then ABR_ProfileUI_Refresh() end
-    DEFAULT_CHAT_FRAME:AddMessage("|cff80ff80ABR: Profile deleted:|r "..name)
+    ABR_Notify("|cff80ff80ABR: Profile deleted:|r "..name)
 end
 
 
@@ -420,6 +433,26 @@ SlashCmdList["BUZZKILL"] = function()
         ABR_Frame:Hide()
     else
         ABR_Frame:Show()
+    end
+end
+
+
+-- Toggle notifications: /bknotify [on|off|enable|disable|status]
+SLASH_BKNOTIFY1 = "/bknotify"
+SlashCmdList["BKNOTIFY"] = function(msg)
+    msg = string.lower(tostring(msg or ""))
+    if msg == "status" then
+        ABR_Notify("BuzzKill notifications: " .. (ABR_NotifyEnabled and "ON" or "OFF"), true)
+        return
+    elseif msg == "on" or msg == "1" or msg == "enable" then
+        ABR_NotifyEnabled = true
+        ABR_Notify("|cff80ff80BuzzKill notifications: ON|r", true)
+    elseif msg == "off" or msg == "0" or msg == "disable" then
+        ABR_NotifyEnabled = false
+        ABR_Notify("|cffff8080BuzzKill notifications: OFF|r", true)
+    else
+        ABR_NotifyEnabled = not ABR_NotifyEnabled
+        ABR_Notify("BuzzKill notifications: " .. (ABR_NotifyEnabled and "ON" or "OFF"), true)
     end
 end
 
