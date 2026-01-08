@@ -1,8 +1,8 @@
 ## Interface: 11200
-## Title: Buzzkill
-## Notes: AutoBuffRemover
-## Author: Theo
-## Version: 0.1
-## SavedVariablesPerCharacter: ABR_BuffsList, ABR_Profiles, ABR_ActiveProfileName
+## Title: BuzzKill
+## Notes: Auto-cancels selected buffs whenever they appear.
+## Author: THEO
+## Version: 1.1
+## SavedVariablesPerCharacter: BuzzKillDB
 
-Buzzkill.lua
+BuzzKill.lua
