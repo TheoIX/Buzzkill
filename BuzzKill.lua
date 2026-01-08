@@ -317,7 +317,7 @@ local function UI_Build()
 
   local sub = f:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
   sub:SetPoint("TOPLEFT", title, "BOTTOMLEFT", 0, -4)
-  sub:SetText("Always removes selected buffs as soon as they appear.")
+  sub:SetText("v1.1 TheoIX.")
 
   -- Debug checkbox
   local dbg = CreateFrame("CheckButton", nil, f, "UICheckButtonTemplate")
@@ -337,7 +337,7 @@ local function UI_Build()
   idLabel:SetPoint("TOPLEFT", f, "TOPLEFT", 16, -86)
   idLabel:SetText("Buff ID:")
 
-  local idBox = CreateFrame("EditBox", nil, f, "InputBoxTemplate")
+  local idBox = CreateFrame("EditBox", "BuzzKillIDBox", f, "InputBoxTemplate")
   idBox:SetAutoFocus(false)
   idBox:SetWidth(80)
   idBox:SetHeight(18)
@@ -346,21 +346,24 @@ local function UI_Build()
   f.idBox = idBox
 
   local nameLabel = f:CreateFontString(nil, "ARTWORK", "GameFontNormalSmall")
-  nameLabel:SetPoint("LEFT", idBox, "RIGHT", 10, 0)
-  nameLabel:SetText("Name:")
+nameLabel:SetPoint("TOPLEFT", idLabel, "BOTTOMLEFT", 0, -12)
+nameLabel:SetText("Name:")
 
-  local nameBox = CreateFrame("EditBox", nil, f, "InputBoxTemplate")
-  nameBox:SetAutoFocus(false)
-  nameBox:SetWidth(180)
-  nameBox:SetHeight(18)
-  nameBox:SetPoint("LEFT", nameLabel, "RIGHT", 8, 0)
-  nameBox:SetScript("OnEscapePressed", function() nameBox:ClearFocus() end)
-  f.nameBox = nameBox
+local nameBox = CreateFrame("EditBox", "BuzzKillNameBox", f, "InputBoxTemplate")
+nameBox:SetAutoFocus(false)
+nameBox:SetWidth(260)
+nameBox:SetHeight(20)
+nameBox:SetPoint("LEFT", nameLabel, "RIGHT", 8, 0)
+nameBox:SetTextInsets(6, 6, 3, 3)
+nameBox:SetFontObject(ChatFontNormal)
+nameBox:SetScript("OnEscapePressed", function() nameBox:ClearFocus() end)
+f.nameBox = nameBox
+
 
   local addBtn = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
   addBtn:SetWidth(70)
   addBtn:SetHeight(20)
-  addBtn:SetPoint("TOPLEFT", idLabel, "BOTTOMLEFT", 0, -10)
+  addBtn:SetPoint("TOPLEFT", nameLabel, "BOTTOMLEFT", 0, -10)
   addBtn:SetText("Add")
   addBtn:SetScript("OnClick", function()
     local id = tonumber(f.idBox:GetText() or "")
@@ -402,23 +405,30 @@ local function UI_Build()
   end)
 
   -- Two panels: Always list (left), Active buffs (right)
-  local panelTopY = -142
+    -- Footer help (create first so we can reserve space)
+  local help = f:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
+  help:SetPoint("BOTTOMLEFT", f, "BOTTOMLEFT", 16, 18)
+  help:SetText("Tip: Click an Active Buff to auto-fill ID/Name, then press Add.")
+
+  local LIST_BOTTOM_PAD = 44 -- space reserved for the tip line
+
+  -- Two panels: Always list (left), Active buffs (right)
   local panelW = 190
   local panelH = 280
 
   local leftTitle = f:CreateFontString(nil, "ARTWORK", "GameFontNormalSmall")
-  leftTitle:SetPoint("TOPLEFT", f, "TOPLEFT", 16, panelTopY)
+  leftTitle:SetPoint("TOPLEFT", addBtn, "BOTTOMLEFT", 0, -16)
   leftTitle:SetText("Always Remove")
 
   local rightTitle = f:CreateFontString(nil, "ARTWORK", "GameFontNormalSmall")
-  rightTitle:SetPoint("TOPLEFT", f, "TOPLEFT", 220, panelTopY)
+  rightTitle:SetPoint("TOPLEFT", refreshBtn, "BOTTOMLEFT", 0, -16)
   rightTitle:SetText("Active Buffs (click to fill fields)")
 
   -- Left list container
   local leftBox = CreateFrame("Frame", nil, f)
   leftBox:SetWidth(panelW)
-  leftBox:SetHeight(panelH)
-  leftBox:SetPoint("TOPLEFT", f, "TOPLEFT", 16, panelTopY - 16)
+  leftBox:SetPoint("TOPLEFT", leftTitle, "BOTTOMLEFT", 0, -6)
+  leftBox:SetPoint("BOTTOMLEFT", f, "BOTTOMLEFT", 16, LIST_BOTTOM_PAD)
   leftBox:SetBackdrop({
     bgFile   = "Interface\\Tooltips\\UI-Tooltip-Background",
     edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
@@ -430,8 +440,8 @@ local function UI_Build()
   -- Right list container
   local rightBox = CreateFrame("Frame", nil, f)
   rightBox:SetWidth(panelW)
-  rightBox:SetHeight(panelH)
-  rightBox:SetPoint("TOPLEFT", f, "TOPLEFT", 220, panelTopY - 16)
+  rightBox:SetPoint("TOPLEFT", rightTitle, "BOTTOMLEFT", 0, -6)
+  rightBox:SetPoint("BOTTOMLEFT", f, "BOTTOMLEFT", 220, LIST_BOTTOM_PAD)
   rightBox:SetBackdrop({
     bgFile   = "Interface\\Tooltips\\UI-Tooltip-Background",
     edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
@@ -442,8 +452,8 @@ local function UI_Build()
 
   -- Scroll settings
   f.rowH = 22
-  f.alwaysVisible = 11
-  f.activeVisible = 11
+  f.alwaysVisible = 10
+  f.activeVisible = 10
 
   -- Left scroll + rows
   local alwaysScroll = CreateFrame("ScrollFrame", "BuzzKillAlwaysScroll", leftBox, "FauxScrollFrameTemplate")
@@ -458,8 +468,9 @@ local function UI_Build()
     f.alwaysRows[i] = row
   end
 
-  alwaysScroll:SetScript("OnVerticalScroll", function()
-    FauxScrollFrame_OnVerticalScroll(f.rowH, function() UI_RefreshAlwaysList() end)
+  -- IMPORTANT: Turtle expects (scrollFrame, offset, rowHeight, updateFunc)
+  alwaysScroll:SetScript("OnVerticalScroll", function(self, offset)
+    FauxScrollFrame_OnVerticalScroll(self, offset, f.rowH, UI_RefreshAlwaysList)
   end)
 
   -- Right scroll + rows
@@ -475,14 +486,9 @@ local function UI_Build()
     f.activeRows[i] = row
   end
 
-  activeScroll:SetScript("OnVerticalScroll", function()
-    FauxScrollFrame_OnVerticalScroll(f.rowH, function() UI_RefreshActiveList() end)
+  activeScroll:SetScript("OnVerticalScroll", function(self, offset)
+    FauxScrollFrame_OnVerticalScroll(self, offset, f.rowH, UI_RefreshActiveList)
   end)
-
-  -- Footer help
-  local help = f:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
-  help:SetPoint("BOTTOMLEFT", f, "BOTTOMLEFT", 16, 18)
-  help:SetText("Tip: Click an Active Buff to auto-fill ID/Name, then press Add.")
 
   f:Hide()
 end
