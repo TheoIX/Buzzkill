@@ -42,6 +42,14 @@ local function BuildMap()
   end
 end
 
+local initialized = false
+local function InitOnce()
+  if initialized then return end
+  EnsureDB()
+  BuildMap()
+  initialized = true
+end
+
 local function AddBuffID(id, name, icon)
   if not id or id <= 0 then
     BK_Print("Add failed: invalid id.")
@@ -481,6 +489,7 @@ end
 
 local function UI_Show()
   UI_Build()
+  InitOnce()
   EnsureDB()
   BK_UI.debugCheck:SetChecked(debugEnabled and 1 or 0)
 
@@ -579,21 +588,24 @@ end
 -- ------------------------------------------------------------
 -- Events
 -- ------------------------------------------------------------
-
 local f = CreateFrame("Frame")
 f:RegisterEvent("ADDON_LOADED")
 f:RegisterEvent("PLAYER_AURAS_CHANGED")
 
 f:SetScript("OnEvent", function()
-  if event == "ADDON_LOADED" and arg1 == ADDON_NAME then
-    EnsureDB()
-    BuildMap()
-    -- No forced prints unless debug is on
-    BK_Print("Loaded. Use /buzzkill to open UI.")
+  if event == "ADDON_LOADED" then
+    -- Don't rely on folder name matching; just init once.
+    InitOnce()
+
+    -- Optional: only print the "Loaded" message when it’s actually our addon.
+    if arg1 == ADDON_NAME then
+      BK_Print("Loaded. Use /buzzkill to open UI.")
+    end
     return
   end
 
   if event == "PLAYER_AURAS_CHANGED" then
+    InitOnce()
     RemoveAlways()
 
     -- keep active list somewhat fresh while UI is open
@@ -604,3 +616,4 @@ f:SetScript("OnEvent", function()
     return
   end
 end)
+
