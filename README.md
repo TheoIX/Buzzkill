@@ -1,43 +1,63 @@
-# BuzzKill
+# BuzzKill (Turtle WoW / Vanilla 1.12)
 
-BuzzKill is a tiny Turtle WoW (1.12) addon that **automatically cancels specific buffs** the moment they appear.
+BuzzKill is a lightweight buff manager that:
+- **Instantly cancels** buffs you never want (Always Remove)
+- **Trims a priority list** only when you exceed a configurable buff threshold (Remove at Buff Cap)
+- Lets you pick buffs from your **current active buffs** so you don’t have to guess IDs
+
+> Default cap threshold is **31** (auto-set on fresh installs and auto-repaired if invalid). :contentReference[oaicite:0]{index=0}
+
+---
 
 ## Install
-1. Copy the folder into:
-   `Interface\AddOns\BuzzKill\`
-2. Make sure these files exist:
+1. Create folder: `Interface\AddOns\BuzzKill\`
+2. Put these inside:
    - `BuzzKill.toc`
    - `BuzzKill.lua`
 3. Restart WoW (or `/reload`).
 
-## How to Use
-- Type **`/buzzkill`** to open the options UI.
+---
 
-### Add a buff to Always Remove (UI)
-1. In the **Active Buffs** list (right side), click the buff you want to kill.
-2. Press **Add**.
-3. From now on, BuzzKill will cancel it automatically.
+## Open the UI
+Type: `/buzzkill`
 
-### Remove a buff from Always Remove (UI)
-1. Click the buff in the **Always Remove** list (left side).
-2. Press **Remove Selected**.
+---
 
-### Helpful Buttons
-- **Refresh Active** — re-scan your current buffs.
+## How it works
 
-## Commands
-- `/buzzkill` — toggle the UI
-- `/buzzkill ui` — toggle the UI
-- `/buzzkill list` — print your always-remove list to chat
-- `/buzzkill add <id> [name]` — add a buff by ID
-- `/buzzkill del <id>` — remove a buff by ID
-- `/buzzkill debug` — toggle debug chat messages
+### Always Remove (instant)
+Anything in **Always Remove** is cancelled as soon as it appears on you.
 
-## Notes
-- BuzzKill removes **one matching buff per aura change** (safe + lightweight).
-- Buff IDs come from your current buffs (use the UI’s Active Buffs list), or add manually by ID.
+### Remove at Buff Cap (priority)
+When your total buffs **exceed your max** (default 31), BuzzKill removes buffs from the **Cap List** in order (top = highest priority). :contentReference[oaicite:1]{index=1}  
+Use the **Up / Down** buttons under the cap list to reorder priority.
 
-## Saved Variables
-- `BuzzKillDB` (SavedVariablesPerCharacter by default)
-  - `BuzzKillDB.list` — buffs to cancel
-  - `BuzzKillDB.debug` — debug toggle
+BuzzKill removes **one matching buff per aura change** (safe + lightweight).
+
+---
+
+## UI usage
+- **Active Buffs (right panel):** click a buff to auto-fill **Buff ID** and **Name**
+- **Add Always:** add the typed/selected buff to Always Remove
+- **Add Cap List:** add the typed/selected buff to Remove at Buff Cap list
+- **Remove Selected:** removes the selected entry (from whichever list you selected)
+- **Refresh Active:** re-scan your currently active buffs
+- **Debug chat messages:** prints removal messages to chat
+
+> A buff can only be in **one** list at a time. Adding it to one list removes it from the other. :contentReference[oaicite:2]{index=2}
+
+---
+
+## Slash commands
+- `/buzzkill` — toggle UI
+- `/buzzkill ui` — toggle UI
+- `/buzzkill debug` — toggle debug prints
+- `/buzzkill max <1-63>` — set cap-trim threshold (default 31)
+- `/buzzkill add <id> [name]` — add to Always Remove (manual)
+- `/buzzkill addcap <id> [name]` — add to Cap List (manual)
+- `/buzzkill list` — print Always Remove list
+- `/buzzkill listcap` — print Cap List (priority order)
+
+### Print current max (example)
+```lua
+/run DEFAULT_CHAT_FRAME:AddMessage("BuzzKillDB.maxBuffs = "..tostring(BuzzKillDB and BuzzKillDB.maxBuffs))
