@@ -1,19 +1,26 @@
--- BuzzKill.lua (Turtle WoW / 1.12 style)
--- Always-remove only, with a small UI to add/remove buffs.
+-- BuzzKill.lua (Turtle WoW / 1.12)
+-- Always-remove + Remove-at-buff-cap + Active buff picker UI.
 
 local ADDON_NAME = "BuzzKill"
 
--- SavedVariablesPerCharacter (or SavedVariables if you changed the .toc)
-BuzzKillDB = BuzzKillDB or nil
+BuzzKillDB = BuzzKillDB or {}
+
+local MAX_BUFFS_DEFAULT = 31 -- same idea as Prune's MaxBuffs=31 :contentReference[oaicite:2]{index=2}
+-- Hard default for fresh installs (and auto-repair bad values)
+if type(BuzzKillDB.maxBuffs) ~= "number" or BuzzKillDB.maxBuffs < 1 or BuzzKillDB.maxBuffs > 63 then
+  BuzzKillDB.maxBuffs = MAX_BUFFS_DEFAULT -- 31
+end
 
 local debugEnabled = false
-local AlwaysRemoveMap = {}     -- [buffID] = displayName
+local AlwaysRemoveMap = {}   -- [buffID] = name
+local NearCapMap     = {}    -- [buffID] = name
 
 -- UI state
 local BK_UI = nil
 local selectedAlwaysIndex = nil
+local selectedCapIndex = nil
 local selectedActiveIndex = nil
-local ActiveBuffs = {}         -- array of { slot, id, name, icon }
+local ActiveBuffs = {}       -- { slot, id, name, icon }
 
 -- ------------------------------------------------------------
 -- Helpers / DB
@@ -27,17 +34,31 @@ end
 
 local function EnsureDB()
   if not BuzzKillDB then BuzzKillDB = {} end
-  if type(BuzzKillDB.list) ~= "table" then BuzzKillDB.list = {} end
+  if type(BuzzKillDB.list) ~= "table" then BuzzKillDB.list = {} end                 -- Always Remove
+  if type(BuzzKillDB.nearCap) ~= "table" then BuzzKillDB.nearCap = {} end           -- Remove at Buff Cap
+  if type(BuzzKillDB.maxBuffs) ~= "number" or BuzzKillDB.maxBuffs < 1 or BuzzKillDB.maxBuffs > 63 then
+  BuzzKillDB.maxBuffs = MAX_BUFFS_DEFAULT
+end
+
   if BuzzKillDB.debug == nil then BuzzKillDB.debug = false end
   debugEnabled = (BuzzKillDB.debug == true)
 end
 
-local function BuildMap()
+local function BuildMaps()
   AlwaysRemoveMap = {}
-  if not BuzzKillDB or not BuzzKillDB.list then return end
+  NearCapMap = {}
+
+  if not BuzzKillDB then return end
+
   for _, entry in ipairs(BuzzKillDB.list) do
     if entry and entry.id then
       AlwaysRemoveMap[entry.id] = entry.name or ("BuffID " .. tostring(entry.id))
+    end
+  end
+
+  for _, entry in ipairs(BuzzKillDB.nearCap) do
+    if entry and entry.id then
+      NearCapMap[entry.id] = entry.name or ("BuffID " .. tostring(entry.id))
     end
   end
 end
@@ -46,63 +67,79 @@ local initialized = false
 local function InitOnce()
   if initialized then return end
   EnsureDB()
-  BuildMap()
+  BuildMaps()
   initialized = true
 end
 
-local function AddBuffID(id, name, icon)
-  if not id or id <= 0 then
-    BK_Print("Add failed: invalid id.")
-    return
+local function RemoveByID(list, id)
+  local i = 1
+  while i <= table.getn(list) do
+    if list[i] and list[i].id == id then
+      table.remove(list, i)
+      return true
+    end
+    i = i + 1
   end
-  EnsureDB()
+  return false
+end
 
-  -- de-dupe / update
-  for _, entry in ipairs(BuzzKillDB.list) do
+local function Upsert(list, id, name, icon)
+  for _, entry in ipairs(list) do
     if entry and entry.id == id then
       if name and name ~= "" then entry.name = name end
       if icon and icon ~= "" then entry.icon = icon end
-      BuildMap()
-      BK_Print("Updated: " .. id .. " -> " .. (AlwaysRemoveMap[id] or tostring(id)))
-      return
+      return true
     end
   end
-
-  table.insert(BuzzKillDB.list, {
-    id   = id,
+  table.insert(list, {
+    id = id,
     name = (name and name ~= "" and name) or ("BuffID " .. tostring(id)),
     icon = icon
   })
-  BuildMap()
-  BK_Print("Added: " .. id .. " -> " .. (AlwaysRemoveMap[id] or tostring(id)))
+  return true
 end
 
-local function DelBuffIndex(index)
+local function AddToAlways(id, name, icon)
+  EnsureDB()
+  Upsert(BuzzKillDB.list, id, name, icon)
+  RemoveByID(BuzzKillDB.nearCap, id) -- keep lists mutually exclusive (like Prune)
+  BuildMaps()
+end
+
+local function AddToCap(id, name, icon)
+  EnsureDB()
+  Upsert(BuzzKillDB.nearCap, id, name, icon)
+  RemoveByID(BuzzKillDB.list, id) -- keep lists mutually exclusive (like Prune)
+  BuildMaps()
+end
+
+local function DelAlwaysIndex(index)
   EnsureDB()
   if not index or not BuzzKillDB.list[index] then return end
-  local id = BuzzKillDB.list[index].id
   table.remove(BuzzKillDB.list, index)
-  BuildMap()
-  BK_Print("Deleted: " .. tostring(id))
+  BuildMaps()
 end
 
-local function ListBuffIDs()
+local function DelCapIndex(index)
   EnsureDB()
-  if table.getn(BuzzKillDB.list) == 0 then
-    BK_Print("List is empty.")
-    return
-  end
-  BK_Print("Always-remove list:")
-  for _, entry in ipairs(BuzzKillDB.list) do
-    if entry and entry.id then
-      BK_Print("  " .. entry.id .. " - " .. (entry.name or ("BuffID " .. tostring(entry.id))))
-    end
-  end
+  if not index or not BuzzKillDB.nearCap[index] then return end
+  table.remove(BuzzKillDB.nearCap, index)
+  BuildMaps()
 end
 
 -- ------------------------------------------------------------
--- Core logic: remove the first matching buff found (one per aura change)
+-- Buff counting + removers (Prune-style)
 -- ------------------------------------------------------------
+
+local function CountBuffs()
+  local count, i = 0, 0
+  while i <= 63 do
+    local id = GetPlayerBuffID(i)
+    if id and id > 0 then count = count + 1 end
+    i = i + 1
+  end
+  return count
+end
 
 local function RemoveAlways()
   for i = 0, 63 do
@@ -116,12 +153,33 @@ local function RemoveAlways()
   return false
 end
 
+local function RemoveForCap()
+  EnsureDB()
+  local maxBuffs = BuzzKillDB.maxBuffs or MAX_BUFFS_DEFAULT
+
+  -- Prune: if CountBuffs() <= MaxBuffs then return :contentReference[oaicite:3]{index=3}
+  if CountBuffs() <= maxBuffs then return false end
+
+  -- Prune: iterate RemoveNearCap list in order, find matching buff slot, cancel :contentReference[oaicite:4]{index=4}
+  for _, entry in ipairs(BuzzKillDB.nearCap) do
+    for i = 0, 63 do
+      local id = GetPlayerBuffID(i)
+      if id and id == entry.id then
+        CancelPlayerBuff(i)
+        BK_Print("Removed for buff cap: " .. (entry.name or ("BuffID " .. tostring(id))))
+        return true
+      end
+    end
+  end
+
+  return false
+end
+
 -- ------------------------------------------------------------
--- UI: tooltip-based buff name retrieval for active buffs
+-- Tooltip-based buff name retrieval (Active list)
 -- ------------------------------------------------------------
 
 local BK_Tip = nil
-
 local function EnsureTooltip()
   if BK_Tip then return end
   BK_Tip = CreateFrame("GameTooltip", "BuzzKillTooltip", UIParent, "GameTooltipTemplate")
@@ -130,8 +188,6 @@ end
 
 local function GetBuffNameFromSlot(slot)
   EnsureTooltip()
-
-  -- Turtle/Vanilla generally supports this call; if not, we fall back to "BuffID X"
   if BK_Tip.SetPlayerBuff then
     BK_Tip:ClearLines()
     BK_Tip:SetOwner(UIParent, "ANCHOR_NONE")
@@ -139,9 +195,7 @@ local function GetBuffNameFromSlot(slot)
     local left1 = getglobal("BuzzKillTooltipTextLeft1")
     if left1 and left1.GetText then
       local text = left1:GetText()
-      if text and text ~= "" then
-        return text
-      end
+      if text and text ~= "" then return text end
     end
   end
   return nil
@@ -157,6 +211,14 @@ local function ScanActiveBuffs()
       table.insert(ActiveBuffs, { slot = slot, id = id, name = name, icon = icon })
     end
   end
+end
+
+local function FindIconIfActive(id)
+  ScanActiveBuffs()
+  for _, b in ipairs(ActiveBuffs) do
+    if b.id == id then return b.icon end
+  end
+  return nil
 end
 
 -- ------------------------------------------------------------
@@ -204,29 +266,23 @@ local function UI_RefreshAlwaysList()
 
     if entry then
       row:Show()
-      local icon = entry.icon
-      if icon and icon ~= "" then
-        row.icon:SetTexture(icon)
-        row.icon:Show()
+      if entry.icon and entry.icon ~= "" then
+        row.icon:SetTexture(entry.icon); row.icon:Show()
       else
         row.icon:Hide()
       end
 
-      local nm = entry.name or ("BuffID " .. tostring(entry.id))
-      row.text:SetText(string.format("%s  |cffaaaaaa(%d)|r", nm, entry.id))
+      row.text:SetText(string.format("%s  |cffaaaaaa(%d)|r", entry.name or ("BuffID " .. entry.id), entry.id))
 
-      if selectedAlwaysIndex == idx then
-        row.highlight:Show()
-      else
-        row.highlight:Hide()
-      end
+      if selectedAlwaysIndex == idx then row.highlight:Show() else row.highlight:Hide() end
 
       row:SetScript("OnClick", function()
         selectedAlwaysIndex = idx
+        selectedCapIndex = nil
         selectedActiveIndex = nil
         UI_RefreshAlwaysList()
-        -- clear active selection highlights
-        if BK_UI then UI_RefreshActiveList() end
+        UI_RefreshCapList()
+        UI_RefreshActiveList()
       end)
     else
       row:Hide()
@@ -234,6 +290,48 @@ local function UI_RefreshAlwaysList()
   end
 
   FauxScrollFrame_Update(BK_UI.alwaysScroll, total, visible, BK_UI.rowH)
+end
+
+function UI_RefreshCapList()
+  if not BK_UI then return end
+  EnsureDB()
+
+  local list = BuzzKillDB.nearCap
+  local total = table.getn(list)
+  local visible = BK_UI.capVisible
+  local offset = FauxScrollFrame_GetOffset(BK_UI.capScroll)
+
+  for i = 1, visible do
+    local row = BK_UI.capRows[i]
+    local idx = offset + i
+    local entry = list[idx]
+
+    if entry then
+      row:Show()
+      if entry.icon and entry.icon ~= "" then
+        row.icon:SetTexture(entry.icon); row.icon:Show()
+      else
+        row.icon:Hide()
+      end
+
+      row.text:SetText(string.format("%s  |cffaaaaaa(%d)|r", entry.name or ("BuffID " .. entry.id), entry.id))
+
+      if selectedCapIndex == idx then row.highlight:Show() else row.highlight:Hide() end
+
+      row:SetScript("OnClick", function()
+        selectedCapIndex = idx
+        selectedAlwaysIndex = nil
+        selectedActiveIndex = nil
+        UI_RefreshAlwaysList()
+        UI_RefreshCapList()
+        UI_RefreshActiveList()
+      end)
+    else
+      row:Hide()
+    end
+  end
+
+  FauxScrollFrame_Update(BK_UI.capScroll, total, visible, BK_UI.rowH)
 end
 
 function UI_RefreshActiveList()
@@ -251,31 +349,27 @@ function UI_RefreshActiveList()
     if entry then
       row:Show()
       if entry.icon and entry.icon ~= "" then
-        row.icon:SetTexture(entry.icon)
-        row.icon:Show()
+        row.icon:SetTexture(entry.icon); row.icon:Show()
       else
         row.icon:Hide()
       end
 
       row.text:SetText(string.format("%s  |cffaaaaaa(%d)|r", entry.name or "Unknown", entry.id))
 
-      if selectedActiveIndex == idx then
-        row.highlight:Show()
-      else
-        row.highlight:Hide()
-      end
+      if selectedActiveIndex == idx then row.highlight:Show() else row.highlight:Hide() end
 
       row:SetScript("OnClick", function()
         selectedActiveIndex = idx
         selectedAlwaysIndex = nil
+        selectedCapIndex = nil
 
-        -- fill inputs from active buff
         if BK_UI.idBox then BK_UI.idBox:SetText(tostring(entry.id)) end
         if BK_UI.nameBox then BK_UI.nameBox:SetText(entry.name or "") end
         BK_UI._pendingIcon = entry.icon
 
-        UI_RefreshActiveList()
         UI_RefreshAlwaysList()
+        UI_RefreshCapList()
+        UI_RefreshActiveList()
       end)
     else
       row:Hide()
@@ -290,8 +384,8 @@ local function UI_Build()
 
   local f = CreateFrame("Frame", "BuzzKillOptionsFrame", UIParent)
   BK_UI = f
-  f:SetWidth(420)
-  f:SetHeight(460)
+  f:SetWidth(640)
+  f:SetHeight(470)
   f:SetPoint("CENTER", UIParent, "CENTER", 0, 0)
   f:SetMovable(true)
   f:EnableMouse(true)
@@ -306,18 +400,16 @@ local function UI_Build()
     insets = { left = 8, right = 8, top = 8, bottom = 8 }
   })
 
-  -- Close button
   local close = CreateFrame("Button", nil, f, "UIPanelCloseButton")
   close:SetPoint("TOPRIGHT", f, "TOPRIGHT", -6, -6)
 
-  -- Title
   local title = f:CreateFontString(nil, "ARTWORK", "GameFontNormalLarge")
   title:SetPoint("TOPLEFT", f, "TOPLEFT", 16, -14)
   title:SetText("BuzzKill")
 
   local sub = f:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
   sub:SetPoint("TOPLEFT", title, "BOTTOMLEFT", 0, -4)
-  sub:SetText("v1.1 TheoIX.")
+  sub:SetText("Always removes selected buffs, and trims a priority list when you hit buff cap.")
 
   -- Debug checkbox
   local dbg = CreateFrame("CheckButton", nil, f, "UICheckButtonTemplate")
@@ -332,71 +424,95 @@ local function UI_Build()
   end)
   f.debugCheck = dbg
 
-  -- Input area
+  -- Inputs
   local idLabel = f:CreateFontString(nil, "ARTWORK", "GameFontNormalSmall")
   idLabel:SetPoint("TOPLEFT", f, "TOPLEFT", 16, -86)
   idLabel:SetText("Buff ID:")
 
   local idBox = CreateFrame("EditBox", "BuzzKillIDBox", f, "InputBoxTemplate")
   idBox:SetAutoFocus(false)
-  idBox:SetWidth(80)
-  idBox:SetHeight(18)
+  idBox:SetWidth(90)
+  idBox:SetHeight(20)
   idBox:SetPoint("LEFT", idLabel, "RIGHT", 8, 0)
+  idBox:SetTextInsets(6, 6, 3, 3)
+  idBox:SetFontObject(ChatFontNormal)
   idBox:SetScript("OnEscapePressed", function() idBox:ClearFocus() end)
   f.idBox = idBox
 
   local nameLabel = f:CreateFontString(nil, "ARTWORK", "GameFontNormalSmall")
-nameLabel:SetPoint("TOPLEFT", idLabel, "BOTTOMLEFT", 0, -12)
-nameLabel:SetText("Name:")
+  nameLabel:SetPoint("TOPLEFT", idLabel, "BOTTOMLEFT", 0, -12)
+  nameLabel:SetText("Name:")
 
-local nameBox = CreateFrame("EditBox", "BuzzKillNameBox", f, "InputBoxTemplate")
-nameBox:SetAutoFocus(false)
-nameBox:SetWidth(260)
-nameBox:SetHeight(20)
-nameBox:SetPoint("LEFT", nameLabel, "RIGHT", 8, 0)
-nameBox:SetTextInsets(6, 6, 3, 3)
-nameBox:SetFontObject(ChatFontNormal)
-nameBox:SetScript("OnEscapePressed", function() nameBox:ClearFocus() end)
-f.nameBox = nameBox
+  local nameBox = CreateFrame("EditBox", "BuzzKillNameBox", f, "InputBoxTemplate")
+  nameBox:SetAutoFocus(false)
+  nameBox:SetWidth(260)
+  nameBox:SetHeight(20)
+  nameBox:SetPoint("LEFT", nameLabel, "RIGHT", 8, 0)
+  nameBox:SetTextInsets(6, 6, 3, 3)
+  nameBox:SetFontObject(ChatFontNormal)
+  nameBox:SetScript("OnEscapePressed", function() nameBox:ClearFocus() end)
+  f.nameBox = nameBox
 
-
-  local addBtn = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
-  addBtn:SetWidth(70)
-  addBtn:SetHeight(20)
-  addBtn:SetPoint("TOPLEFT", nameLabel, "BOTTOMLEFT", 0, -10)
-  addBtn:SetText("Add")
-  addBtn:SetScript("OnClick", function()
+  -- Buttons row
+  local addAlwaysBtn = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
+  addAlwaysBtn:SetWidth(110)
+  addAlwaysBtn:SetHeight(20)
+  addAlwaysBtn:SetPoint("TOPLEFT", nameLabel, "BOTTOMLEFT", 0, -10)
+  addAlwaysBtn:SetText("Add Always")
+  addAlwaysBtn:SetScript("OnClick", function()
     local id = tonumber(f.idBox:GetText() or "")
-    if not id then
-      BK_Print("Enter a valid Buff ID.")
-      return
-    end
+    if not id then BK_Print("Enter a valid Buff ID.") return end
     local nm = f.nameBox:GetText() or ""
-    local icon = f._pendingIcon
-    AddBuffID(id, nm, icon)
+    local icon = f._pendingIcon or FindIconIfActive(id)
+    AddToAlways(id, nm, icon)
     selectedAlwaysIndex = nil
+    selectedCapIndex = nil
     UI_RefreshAlwaysList()
+    UI_RefreshCapList()
   end)
 
-  local delBtn = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
-  delBtn:SetWidth(120)
-  delBtn:SetHeight(20)
-  delBtn:SetPoint("LEFT", addBtn, "RIGHT", 8, 0)
-  delBtn:SetText("Remove Selected")
-  delBtn:SetScript("OnClick", function()
-    if not selectedAlwaysIndex then
-      BK_Print("Select an entry in the Always Remove list.")
+  local addCapBtn = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
+  addCapBtn:SetWidth(140)
+  addCapBtn:SetHeight(20)
+  addCapBtn:SetPoint("LEFT", addAlwaysBtn, "RIGHT", 8, 0)
+  addCapBtn:SetText("Add Cap List")
+  addCapBtn:SetScript("OnClick", function()
+    local id = tonumber(f.idBox:GetText() or "")
+    if not id then BK_Print("Enter a valid Buff ID.") return end
+    local nm = f.nameBox:GetText() or ""
+    local icon = f._pendingIcon or FindIconIfActive(id)
+    AddToCap(id, nm, icon)
+    selectedAlwaysIndex = nil
+    selectedCapIndex = nil
+    UI_RefreshAlwaysList()
+    UI_RefreshCapList()
+  end)
+
+  local removeBtn = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
+  removeBtn:SetWidth(130)
+  removeBtn:SetHeight(20)
+  removeBtn:SetPoint("LEFT", addCapBtn, "RIGHT", 8, 0)
+  removeBtn:SetText("Remove Selected")
+  removeBtn:SetScript("OnClick", function()
+    if selectedAlwaysIndex then
+      DelAlwaysIndex(selectedAlwaysIndex)
+      selectedAlwaysIndex = nil
+      UI_RefreshAlwaysList()
       return
     end
-    DelBuffIndex(selectedAlwaysIndex)
-    selectedAlwaysIndex = nil
-    UI_RefreshAlwaysList()
+    if selectedCapIndex then
+      DelCapIndex(selectedCapIndex)
+      selectedCapIndex = nil
+      UI_RefreshCapList()
+      return
+    end
+    BK_Print("Select an entry in Always Remove or Cap List.")
   end)
 
   local refreshBtn = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
   refreshBtn:SetWidth(120)
   refreshBtn:SetHeight(20)
-  refreshBtn:SetPoint("LEFT", delBtn, "RIGHT", 8, 0)
+  refreshBtn:SetPoint("LEFT", removeBtn, "RIGHT", 8, 0)
   refreshBtn:SetText("Refresh Active")
   refreshBtn:SetScript("OnClick", function()
     ScanActiveBuffs()
@@ -404,58 +520,93 @@ f.nameBox = nameBox
     UI_RefreshActiveList()
   end)
 
-  -- Two panels: Always list (left), Active buffs (right)
-    -- Footer help (create first so we can reserve space)
+  -- Footer help
   local help = f:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
   help:SetPoint("BOTTOMLEFT", f, "BOTTOMLEFT", 16, 18)
-  help:SetText("Tip: Click an Active Buff to auto-fill ID/Name, then press Add.")
+  help:SetText("Tip: Click an Active Buff to fill ID/Name. Add Always = instant purge. Add Cap List = removed only when buffs exceed max.")
 
-  local LIST_BOTTOM_PAD = 44 -- space reserved for the tip line
-
-  -- Two panels: Always list (left), Active buffs (right)
+  local LIST_BOTTOM_PAD = 44
   local panelW = 190
-  local panelH = 280
+  local rowH = 22
+  local CAP_BUTTON_PAD = 26  -- reserved space under cap list for Up/Down buttons
 
+  -- Titles
   local leftTitle = f:CreateFontString(nil, "ARTWORK", "GameFontNormalSmall")
-  leftTitle:SetPoint("TOPLEFT", addBtn, "BOTTOMLEFT", 0, -16)
+  leftTitle:SetPoint("TOPLEFT", addAlwaysBtn, "BOTTOMLEFT", 0, -16)
   leftTitle:SetText("Always Remove")
 
+  local midTitle = f:CreateFontString(nil, "ARTWORK", "GameFontNormalSmall")
+  midTitle:SetPoint("TOPLEFT", addAlwaysBtn, "BOTTOMLEFT", 204, -16)
+  midTitle:SetText("Remove at Buff Cap (priority)")
+
   local rightTitle = f:CreateFontString(nil, "ARTWORK", "GameFontNormalSmall")
-  rightTitle:SetPoint("TOPLEFT", refreshBtn, "BOTTOMLEFT", 0, -16)
+  rightTitle:SetPoint("TOPLEFT", addAlwaysBtn, "BOTTOMLEFT", 408, -16)
   rightTitle:SetText("Active Buffs (click to fill fields)")
 
-  -- Left list container
-  local leftBox = CreateFrame("Frame", nil, f)
-  leftBox:SetWidth(panelW)
-  leftBox:SetPoint("TOPLEFT", leftTitle, "BOTTOMLEFT", 0, -6)
-  leftBox:SetPoint("BOTTOMLEFT", f, "BOTTOMLEFT", 16, LIST_BOTTOM_PAD)
-  leftBox:SetBackdrop({
+  -- Boxes
+  local function MakeBox(x, titleFS, bottomPad)
+  local box = CreateFrame("Frame", nil, f)
+  box:SetWidth(panelW)
+  box:SetPoint("TOPLEFT", titleFS, "BOTTOMLEFT", 0, -6)
+  box:SetPoint("BOTTOMLEFT", f, "BOTTOMLEFT", x, bottomPad or LIST_BOTTOM_PAD)
+  box:SetBackdrop({
     bgFile   = "Interface\\Tooltips\\UI-Tooltip-Background",
     edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
     tile = true, tileSize = 16, edgeSize = 16,
     insets = { left = 4, right = 4, top = 4, bottom = 4 }
   })
-  leftBox:SetBackdropColor(0,0,0,0.8)
+  box:SetBackdropColor(0,0,0,0.8)
+  return box
+end
 
-  -- Right list container
-  local rightBox = CreateFrame("Frame", nil, f)
-  rightBox:SetWidth(panelW)
-  rightBox:SetPoint("TOPLEFT", rightTitle, "BOTTOMLEFT", 0, -6)
-  rightBox:SetPoint("BOTTOMLEFT", f, "BOTTOMLEFT", 220, LIST_BOTTOM_PAD)
-  rightBox:SetBackdrop({
-    bgFile   = "Interface\\Tooltips\\UI-Tooltip-Background",
-    edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
-    tile = true, tileSize = 16, edgeSize = 16,
-    insets = { left = 4, right = 4, top = 4, bottom = 4 }
-  })
-  rightBox:SetBackdropColor(0,0,0,0.8)
+
+  local leftBox  = MakeBox(16,  leftTitle)
+  local midBox   = MakeBox(220, midTitle, LIST_BOTTOM_PAD + CAP_BUTTON_PAD)
+  local rightBox = MakeBox(424, rightTitle)
+
+
+  -- Cap priority buttons (below mid box top edge, but inside frame, not overlapping scroll)
+  local upBtn = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
+  upBtn:SetWidth(70)
+  upBtn:SetHeight(18)
+  upBtn:ClearAllPoints()
+  upBtn:SetPoint("TOP", midBox, "BOTTOM", -42, -6)
+  upBtn:SetText("Up")
+  upBtn:SetScript("OnClick", function()
+    EnsureDB()
+    if not selectedCapIndex or selectedCapIndex <= 1 then return end
+    local i = selectedCapIndex
+    BuzzKillDB.nearCap[i], BuzzKillDB.nearCap[i-1] = BuzzKillDB.nearCap[i-1], BuzzKillDB.nearCap[i]
+    selectedCapIndex = i - 1
+    BuildMaps()
+    UI_RefreshCapList()
+  end)
+
+  local downBtn = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
+  downBtn:SetWidth(70)
+  downBtn:SetHeight(18)
+  downBtn:ClearAllPoints()
+  downBtn:SetPoint("LEFT", upBtn, "RIGHT", 8, 0)
+  downBtn:SetText("Down")
+  downBtn:SetScript("OnClick", function()
+    EnsureDB()
+    if not selectedCapIndex then return end
+    local n = table.getn(BuzzKillDB.nearCap)
+    if selectedCapIndex >= n then return end
+    local i = selectedCapIndex
+    BuzzKillDB.nearCap[i], BuzzKillDB.nearCap[i+1] = BuzzKillDB.nearCap[i+1], BuzzKillDB.nearCap[i]
+    selectedCapIndex = i + 1
+    BuildMaps()
+    UI_RefreshCapList()
+  end)
 
   -- Scroll settings
-  f.rowH = 22
+  f.rowH = rowH
   f.alwaysVisible = 10
+  f.capVisible = 10
   f.activeVisible = 10
 
-  -- Left scroll + rows
+  -- Always list scroll + rows
   local alwaysScroll = CreateFrame("ScrollFrame", "BuzzKillAlwaysScroll", leftBox, "FauxScrollFrameTemplate")
   alwaysScroll:SetPoint("TOPLEFT", leftBox, "TOPLEFT", 8, -8)
   alwaysScroll:SetPoint("BOTTOMRIGHT", leftBox, "BOTTOMRIGHT", -28, 8)
@@ -463,17 +614,33 @@ f.nameBox = nameBox
 
   f.alwaysRows = {}
   for i = 1, f.alwaysVisible do
-    local row = CreateRow(leftBox, panelW - 36, f.rowH)
-    row:SetPoint("TOPLEFT", leftBox, "TOPLEFT", 8, -8 - (i-1)*f.rowH)
+    local row = CreateRow(leftBox, panelW - 36, rowH)
+    row:SetPoint("TOPLEFT", leftBox, "TOPLEFT", 8, -8 - (i-1)*rowH)
     f.alwaysRows[i] = row
   end
 
-  -- IMPORTANT: Turtle expects (scrollFrame, offset, rowHeight, updateFunc)
   alwaysScroll:SetScript("OnVerticalScroll", function(self, offset)
-    FauxScrollFrame_OnVerticalScroll(self, offset, f.rowH, UI_RefreshAlwaysList)
+    FauxScrollFrame_OnVerticalScroll(self, offset, rowH, UI_RefreshAlwaysList)
   end)
 
-  -- Right scroll + rows
+  -- Cap list scroll + rows
+  local capScroll = CreateFrame("ScrollFrame", "BuzzKillCapScroll", midBox, "FauxScrollFrameTemplate")
+  capScroll:SetPoint("TOPLEFT", midBox, "TOPLEFT", 8, -8)
+  capScroll:SetPoint("BOTTOMRIGHT", midBox, "BOTTOMRIGHT", -28, 8)
+  f.capScroll = capScroll
+
+  f.capRows = {}
+  for i = 1, f.capVisible do
+    local row = CreateRow(midBox, panelW - 36, rowH)
+    row:SetPoint("TOPLEFT", midBox, "TOPLEFT", 8, -8 - (i-1)*rowH)
+    f.capRows[i] = row
+  end
+
+  capScroll:SetScript("OnVerticalScroll", function(self, offset)
+    FauxScrollFrame_OnVerticalScroll(self, offset, rowH, UI_RefreshCapList)
+  end)
+
+  -- Active list scroll + rows
   local activeScroll = CreateFrame("ScrollFrame", "BuzzKillActiveScroll", rightBox, "FauxScrollFrameTemplate")
   activeScroll:SetPoint("TOPLEFT", rightBox, "TOPLEFT", 8, -8)
   activeScroll:SetPoint("BOTTOMRIGHT", rightBox, "BOTTOMRIGHT", -28, 8)
@@ -481,13 +648,13 @@ f.nameBox = nameBox
 
   f.activeRows = {}
   for i = 1, f.activeVisible do
-    local row = CreateRow(rightBox, panelW - 36, f.rowH)
-    row:SetPoint("TOPLEFT", rightBox, "TOPLEFT", 8, -8 - (i-1)*f.rowH)
+    local row = CreateRow(rightBox, panelW - 36, rowH)
+    row:SetPoint("TOPLEFT", rightBox, "TOPLEFT", 8, -8 - (i-1)*rowH)
     f.activeRows[i] = row
   end
 
   activeScroll:SetScript("OnVerticalScroll", function(self, offset)
-    FauxScrollFrame_OnVerticalScroll(self, offset, f.rowH, UI_RefreshActiveList)
+    FauxScrollFrame_OnVerticalScroll(self, offset, rowH, UI_RefreshActiveList)
   end)
 
   f:Hide()
@@ -497,124 +664,137 @@ local function UI_Show()
   UI_Build()
   InitOnce()
   EnsureDB()
+
   BK_UI.debugCheck:SetChecked(debugEnabled and 1 or 0)
 
   ScanActiveBuffs()
   selectedAlwaysIndex = nil
+  selectedCapIndex = nil
   selectedActiveIndex = nil
   BK_UI._pendingIcon = nil
 
   UI_RefreshAlwaysList()
+  UI_RefreshCapList()
   UI_RefreshActiveList()
   BK_UI:Show()
 end
 
 local function UI_Toggle()
   UI_Build()
-  if BK_UI:IsShown() then
-    BK_UI:Hide()
-  else
-    UI_Show()
-  end
+  if BK_UI:IsShown() then BK_UI:Hide() else UI_Show() end
 end
 
 -- ------------------------------------------------------------
 -- Slash command: /buzzkill
--- - no args: toggle UI
--- - /buzzkill add <id> [name...]
--- - /buzzkill del <id>
--- - /buzzkill list
--- - /buzzkill debug
--- - /buzzkill ui
 -- ------------------------------------------------------------
 
 SLASH_BUZZKILL1 = "/buzzkill"
 SlashCmdList["BUZZKILL"] = function(msg)
   msg = msg or ""
+  msg = string.gsub(msg, "^%s+", "")
+  msg = string.gsub(msg, "%s+$", "")
+
   if msg == "" then
     UI_Toggle()
     return
   end
 
-  local cmd, rest = msg:match("^(%S+)%s*(.-)$")
+  local _, _, cmd, rest = string.find(msg, "^(%S+)%s*(.*)$")
   cmd = cmd and string.lower(cmd) or ""
+  rest = rest or ""
+
+  InitOnce()
 
   if cmd == "ui" then
     UI_Toggle()
     return
 
-  elseif cmd == "add" then
-    local idStr, name = rest:match("^(%d+)%s*(.-)$")
-    local id = idStr and tonumber(idStr) or nil
-    if not id then
-      BK_Print("Usage: /buzzkill add <id> [name]")
-      return
-    end
-    if name == "" then name = nil end
-    AddBuffID(id, name, nil)
-    return
-
-  elseif cmd == "del" or cmd == "rem" or cmd == "remove" then
-    local id = tonumber(rest)
-    if not id then
-      BK_Print("Usage: /buzzkill del <id>")
-      return
-    end
-    EnsureDB()
-    for i, entry in ipairs(BuzzKillDB.list) do
-      if entry and entry.id == id then
-        DelBuffIndex(i)
-        return
-      end
-    end
-    BK_Print("Not found: " .. tostring(id))
-    return
-
-  elseif cmd == "list" then
-    ListBuffIDs()
-    return
-
   elseif cmd == "debug" then
     EnsureDB()
     BuzzKillDB.debug = not BuzzKillDB.debug
-    debugEnabled = BuzzKillDB.debug
+    debugEnabled = (BuzzKillDB.debug == true)
     BK_Print("Debug is now " .. (debugEnabled and "ON" or "OFF"))
+    return
+
+  elseif cmd == "max" then
+    local n = tonumber(rest)
+    if not n or n < 1 or n > 63 then
+      BK_Print("Usage: /buzzkill max <1-63> (default 31)")
+      return
+    end
+    EnsureDB()
+    BuzzKillDB.maxBuffs = n
+    BK_Print("Max buffs set to " .. n)
+    return
+
+  elseif cmd == "add" then
+    local _, _, idStr, name = string.find(rest, "^(%d+)%s*(.*)$")
+    local id = idStr and tonumber(idStr) or nil
+    if not id then BK_Print("Usage: /buzzkill add <id> [name]") return end
+    if not name or name == "" then name = nil end
+    AddToAlways(id, name, nil)
+    return
+
+  elseif cmd == "addcap" then
+    local _, _, idStr, name = string.find(rest, "^(%d+)%s*(.*)$")
+    local id = idStr and tonumber(idStr) or nil
+    if not id then BK_Print("Usage: /buzzkill addcap <id> [name]") return end
+    if not name or name == "" then name = nil end
+    AddToCap(id, name, nil)
+    return
+
+  elseif cmd == "list" then
+    EnsureDB()
+    BK_Print("Always Remove list:")
+    for _, e in ipairs(BuzzKillDB.list) do
+      if e and e.id then BK_Print("  " .. e.id .. " - " .. (e.name or ("BuffID " .. e.id))) end
+    end
+    return
+
+  elseif cmd == "listcap" then
+    EnsureDB()
+    BK_Print("Remove at Buff Cap list (priority order):")
+    for _, e in ipairs(BuzzKillDB.nearCap) do
+      if e and e.id then BK_Print("  " .. e.id .. " - " .. (e.name or ("BuffID " .. e.id))) end
+    end
     return
   end
 
   BK_Print("Commands:")
-  BK_Print("  /buzzkill           (toggle UI)")
+  BK_Print("  /buzzkill            (toggle UI)")
   BK_Print("  /buzzkill ui")
   BK_Print("  /buzzkill add <id> [name]")
-  BK_Print("  /buzzkill del <id>")
+  BK_Print("  /buzzkill addcap <id> [name]")
   BK_Print("  /buzzkill list")
+  BK_Print("  /buzzkill listcap")
+  BK_Print("  /buzzkill max <n>    (default 31)")
   BK_Print("  /buzzkill debug")
 end
 
 -- ------------------------------------------------------------
 -- Events
 -- ------------------------------------------------------------
+
 local f = CreateFrame("Frame")
 f:RegisterEvent("ADDON_LOADED")
 f:RegisterEvent("PLAYER_AURAS_CHANGED")
 
 f:SetScript("OnEvent", function()
   if event == "ADDON_LOADED" then
-    -- Don't rely on folder name matching; just init once.
     InitOnce()
-
-    -- Optional: only print the "Loaded" message when it’s actually our addon.
     if arg1 == ADDON_NAME then
-      BK_Print("Loaded. Use /buzzkill to open UI.")
+      BK_Print("Loaded. Use /buzzkill")
     end
     return
   end
 
   if event == "PLAYER_AURAS_CHANGED" then
     InitOnce()
-    RemoveAlways()
 
-    -- keep active list somewhat fresh while UI is open
+    -- Prune behavior: Always first, then cap-trim :contentReference[oaicite:5]{index=5}
+    if RemoveAlways() then return end
+    RemoveForCap()
+
     if BK_UI and BK_UI:IsShown() then
       ScanActiveBuffs()
       UI_RefreshActiveList()
@@ -622,4 +802,3 @@ f:SetScript("OnEvent", function()
     return
   end
 end)
-
