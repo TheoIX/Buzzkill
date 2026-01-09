@@ -619,9 +619,9 @@ end
     f.alwaysRows[i] = row
   end
 
-  alwaysScroll:SetScript("OnVerticalScroll", function(self, offset)
-    FauxScrollFrame_OnVerticalScroll(self, offset, rowH, UI_RefreshAlwaysList)
-  end)
+  alwaysScroll:SetScript("OnVerticalScroll", function()
+  FauxScrollFrame_OnVerticalScroll(arg1, rowH, UI_RefreshAlwaysList)
+end)
 
   -- Cap list scroll + rows
   local capScroll = CreateFrame("ScrollFrame", "BuzzKillCapScroll", midBox, "FauxScrollFrameTemplate")
@@ -631,14 +631,14 @@ end
 
   f.capRows = {}
   for i = 1, f.capVisible do
-    local row = CreateRow(midBox, panelW - 36, rowH)
+    local row = CreateRow(midBox, panelW - 52, rowH)
     row:SetPoint("TOPLEFT", midBox, "TOPLEFT", 8, -8 - (i-1)*rowH)
     f.capRows[i] = row
   end
 
-  capScroll:SetScript("OnVerticalScroll", function(self, offset)
-    FauxScrollFrame_OnVerticalScroll(self, offset, rowH, UI_RefreshCapList)
-  end)
+  capScroll:SetScript("OnVerticalScroll", function()
+  FauxScrollFrame_OnVerticalScroll(arg1, rowH, UI_RefreshCapList)
+end)
 
   -- Active list scroll + rows
   local activeScroll = CreateFrame("ScrollFrame", "BuzzKillActiveScroll", rightBox, "FauxScrollFrameTemplate")
@@ -653,9 +653,9 @@ end
     f.activeRows[i] = row
   end
 
-  activeScroll:SetScript("OnVerticalScroll", function(self, offset)
-    FauxScrollFrame_OnVerticalScroll(self, offset, rowH, UI_RefreshActiveList)
-  end)
+  activeScroll:SetScript("OnVerticalScroll", function()
+  FauxScrollFrame_OnVerticalScroll(arg1, rowH, UI_RefreshActiveList)
+end)
 
   f:Hide()
 end
