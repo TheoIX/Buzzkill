@@ -250,46 +250,86 @@ local function CreateRow(parent, width, height)
   return row
 end
 
+-- ------------------------------------------------------------
+-- Prune-style scroll lists (UIPanelScrollFrameTemplate)
+-- ------------------------------------------------------------
+
+local function EnsureListRow(pool, i, parent, width, height)
+  local row = pool[i]
+  if not row then
+    row = CreateRow(parent, width, height)
+    pool[i] = row
+  end
+  row:SetParent(parent)
+  row:ClearAllPoints()
+  row:SetPoint("TOPLEFT", parent, "TOPLEFT", 0, - (i-1) * height)
+  row:SetWidth(width)
+  row:SetHeight(height)
+  if row.text and row.text.SetWidth then
+    row.text:SetWidth(width - 30)
+  end
+  return row
+end
+
+local function HideExtraRows(pool, fromIndex)
+  local i = fromIndex
+  while i <= table.getn(pool) do
+    if pool[i] then pool[i]:Hide() end
+    i = i + 1
+  end
+end
+
+local function UpdateScrollChildHeight(scroll, child, count, rowH)
+  if not scroll or not child then return end
+  local needed = (count or 0) * rowH
+  local minH = scroll:GetHeight() or 0
+  if needed < minH then needed = minH end
+  if needed < 1 then needed = 1 end
+  child:SetHeight(needed)
+  scroll:SetScrollChild(child)
+end
+
 local function UI_RefreshAlwaysList()
   if not BK_UI then return end
   EnsureDB()
 
   local list = BuzzKillDB.list
   local total = table.getn(list)
-  local visible = BK_UI.alwaysVisible
-  local offset = FauxScrollFrame_GetOffset(BK_UI.alwaysScroll)
+  local rowH = BK_UI.rowH or 22
+  local width = (BK_UI.alwaysContent and BK_UI.alwaysContent:GetWidth()) or 160
 
-  for i = 1, visible do
-    local row = BK_UI.alwaysRows[i]
-    local idx = offset + i
-    local entry = list[idx]
+  if not BK_UI.alwaysRows then BK_UI.alwaysRows = {} end
 
-    if entry then
-      row:Show()
-      if entry.icon and entry.icon ~= "" then
-        row.icon:SetTexture(entry.icon); row.icon:Show()
-      else
-        row.icon:Hide()
-      end
+  for i = 1, total do
+    local entry = list[i]
+    local idx = i
+    local row = EnsureListRow(BK_UI.alwaysRows, idx, BK_UI.alwaysContent, width, rowH)
+    row:Show()
 
-      row.text:SetText(string.format("%s  |cffaaaaaa(%d)|r", entry.name or ("BuffID " .. entry.id), entry.id))
-
-      if selectedAlwaysIndex == idx then row.highlight:Show() else row.highlight:Hide() end
-
-      row:SetScript("OnClick", function()
-        selectedAlwaysIndex = idx
-        selectedCapIndex = nil
-        selectedActiveIndex = nil
-        UI_RefreshAlwaysList()
-        UI_RefreshCapList()
-        UI_RefreshActiveList()
-      end)
+    if entry and entry.icon and entry.icon ~= "" then
+      row.icon:SetTexture(entry.icon); row.icon:Show()
     else
-      row:Hide()
+      row.icon:Hide()
     end
+
+    local name = (entry and entry.name) or (entry and ("BuffID " .. tostring(entry.id))) or "Unknown"
+    local id = (entry and entry.id) or 0
+    row.text:SetText(string.format("%s  |cffaaaaaa(%d)|r", name, id))
+
+    if selectedAlwaysIndex == idx then row.highlight:Show() else row.highlight:Hide() end
+
+    row:SetScript("OnClick", function()
+      selectedAlwaysIndex = idx
+      selectedCapIndex = nil
+      selectedActiveIndex = nil
+      UI_RefreshAlwaysList()
+      UI_RefreshCapList()
+      UI_RefreshActiveList()
+    end)
   end
 
-  FauxScrollFrame_Update(BK_UI.alwaysScroll, total, visible, BK_UI.rowH)
+  HideExtraRows(BK_UI.alwaysRows, total + 1)
+  UpdateScrollChildHeight(BK_UI.alwaysScroll, BK_UI.alwaysContent, total, rowH)
 end
 
 function UI_RefreshCapList()
@@ -298,85 +338,88 @@ function UI_RefreshCapList()
 
   local list = BuzzKillDB.nearCap
   local total = table.getn(list)
-  local visible = BK_UI.capVisible
-  local offset = FauxScrollFrame_GetOffset(BK_UI.capScroll)
+  local rowH = BK_UI.rowH or 22
+  local width = (BK_UI.capContent and BK_UI.capContent:GetWidth()) or 160
 
-  for i = 1, visible do
-    local row = BK_UI.capRows[i]
-    local idx = offset + i
-    local entry = list[idx]
+  if not BK_UI.capRows then BK_UI.capRows = {} end
 
-    if entry then
-      row:Show()
-      if entry.icon and entry.icon ~= "" then
-        row.icon:SetTexture(entry.icon); row.icon:Show()
-      else
-        row.icon:Hide()
-      end
+  for i = 1, total do
+    local entry = list[i]
+    local idx = i
+    local row = EnsureListRow(BK_UI.capRows, idx, BK_UI.capContent, width, rowH)
+    row:Show()
 
-      row.text:SetText(string.format("%s  |cffaaaaaa(%d)|r", entry.name or ("BuffID " .. entry.id), entry.id))
-
-      if selectedCapIndex == idx then row.highlight:Show() else row.highlight:Hide() end
-
-      row:SetScript("OnClick", function()
-        selectedCapIndex = idx
-        selectedAlwaysIndex = nil
-        selectedActiveIndex = nil
-        UI_RefreshAlwaysList()
-        UI_RefreshCapList()
-        UI_RefreshActiveList()
-      end)
+    if entry and entry.icon and entry.icon ~= "" then
+      row.icon:SetTexture(entry.icon); row.icon:Show()
     else
-      row:Hide()
+      row.icon:Hide()
     end
+
+    local name = (entry and entry.name) or (entry and ("BuffID " .. tostring(entry.id))) or "Unknown"
+    local id = (entry and entry.id) or 0
+    row.text:SetText(string.format("%s  |cffaaaaaa(%d)|r", name, id))
+
+    if selectedCapIndex == idx then row.highlight:Show() else row.highlight:Hide() end
+
+    row:SetScript("OnClick", function()
+      selectedCapIndex = idx
+      selectedAlwaysIndex = nil
+      selectedActiveIndex = nil
+      UI_RefreshAlwaysList()
+      UI_RefreshCapList()
+      UI_RefreshActiveList()
+    end)
   end
 
-  FauxScrollFrame_Update(BK_UI.capScroll, total, visible, BK_UI.rowH)
+  HideExtraRows(BK_UI.capRows, total + 1)
+  UpdateScrollChildHeight(BK_UI.capScroll, BK_UI.capContent, total, rowH)
 end
 
 function UI_RefreshActiveList()
   if not BK_UI then return end
 
-  local total = table.getn(ActiveBuffs)
-  local visible = BK_UI.activeVisible
-  local offset = FauxScrollFrame_GetOffset(BK_UI.activeScroll)
+  local list = ActiveBuffs
+  local total = table.getn(list)
+  local rowH = BK_UI.rowH or 22
+  local width = (BK_UI.activeContent and BK_UI.activeContent:GetWidth()) or 160
 
-  for i = 1, visible do
-    local row = BK_UI.activeRows[i]
-    local idx = offset + i
-    local entry = ActiveBuffs[idx]
+  if not BK_UI.activeRows then BK_UI.activeRows = {} end
 
-    if entry then
-      row:Show()
-      if entry.icon and entry.icon ~= "" then
-        row.icon:SetTexture(entry.icon); row.icon:Show()
-      else
-        row.icon:Hide()
-      end
+  for i = 1, total do
+    local entry = list[i]
+    local idx = i
+    local row = EnsureListRow(BK_UI.activeRows, idx, BK_UI.activeContent, width, rowH)
+    row:Show()
 
-      row.text:SetText(string.format("%s  |cffaaaaaa(%d)|r", entry.name or "Unknown", entry.id))
-
-      if selectedActiveIndex == idx then row.highlight:Show() else row.highlight:Hide() end
-
-      row:SetScript("OnClick", function()
-        selectedActiveIndex = idx
-        selectedAlwaysIndex = nil
-        selectedCapIndex = nil
-
-        if BK_UI.idBox then BK_UI.idBox:SetText(tostring(entry.id)) end
-        if BK_UI.nameBox then BK_UI.nameBox:SetText(entry.name or "") end
-        BK_UI._pendingIcon = entry.icon
-
-        UI_RefreshAlwaysList()
-        UI_RefreshCapList()
-        UI_RefreshActiveList()
-      end)
+    if entry and entry.icon and entry.icon ~= "" then
+      row.icon:SetTexture(entry.icon); row.icon:Show()
     else
-      row:Hide()
+      row.icon:Hide()
     end
+
+    local name = (entry and entry.name) or "Unknown"
+    local id = (entry and entry.id) or 0
+    row.text:SetText(string.format("%s  |cffaaaaaa(%d)|r", name, id))
+
+    if selectedActiveIndex == idx then row.highlight:Show() else row.highlight:Hide() end
+
+    row:SetScript("OnClick", function()
+      selectedActiveIndex = idx
+      selectedAlwaysIndex = nil
+      selectedCapIndex = nil
+
+      if BK_UI.idBox and entry and entry.id then BK_UI.idBox:SetText(tostring(entry.id)) end
+      if BK_UI.nameBox then BK_UI.nameBox:SetText((entry and entry.name) or "") end
+      BK_UI._pendingIcon = entry and entry.icon
+
+      UI_RefreshAlwaysList()
+      UI_RefreshCapList()
+      UI_RefreshActiveList()
+    end)
   end
 
-  FauxScrollFrame_Update(BK_UI.activeScroll, total, visible, BK_UI.rowH)
+  HideExtraRows(BK_UI.activeRows, total + 1)
+  UpdateScrollChildHeight(BK_UI.activeScroll, BK_UI.activeContent, total, rowH)
 end
 
 local function UI_Build()
@@ -600,62 +643,30 @@ end
     UI_RefreshCapList()
   end)
 
-  -- Scroll settings
+  -- Scroll settings (Prune-style UIPanelScrollFrameTemplate)
   f.rowH = rowH
-  f.alwaysVisible = 10
-  f.capVisible = 9
-  f.activeVisible = 10
 
-  -- Always list scroll + rows
-  local alwaysScroll = CreateFrame("ScrollFrame", "BuzzKillAlwaysScroll", leftBox, "FauxScrollFrameTemplate")
-  alwaysScroll:SetPoint("TOPLEFT", leftBox, "TOPLEFT", 8, -8)
-  alwaysScroll:SetPoint("BOTTOMRIGHT", leftBox, "BOTTOMRIGHT", -8, 8)
-  f.alwaysScroll = alwaysScroll
+  local function MakeScroll(box, scrollName)
+    local scroll = CreateFrame("ScrollFrame", scrollName, box, "UIPanelScrollFrameTemplate")
+    scroll:SetPoint("TOPLEFT", box, "TOPLEFT", 5, -5)
+    scroll:SetPoint("BOTTOMRIGHT", box, "BOTTOMRIGHT", -20, 5)
+
+    local child = CreateFrame("Frame", scrollName .. "Child", scroll)
+    child:SetWidth(box:GetWidth() - 25)
+    child:SetHeight(1)
+    scroll:SetScrollChild(child)
+
+    return scroll, child
+  end
+
+  f.alwaysScroll, f.alwaysContent = MakeScroll(leftBox,  "BuzzKillAlwaysScrollFrame")
+  f.capScroll,    f.capContent    = MakeScroll(midBox,   "BuzzKillCapScrollFrame")
+  f.activeScroll, f.activeContent = MakeScroll(rightBox, "BuzzKillActiveScrollFrame")
 
   f.alwaysRows = {}
-  for i = 1, f.alwaysVisible do
-    local row = CreateRow(leftBox, panelW - 36, rowH)
-    row:SetPoint("TOPLEFT", leftBox, "TOPLEFT", 8, -8 - (i-1)*rowH)
-    f.alwaysRows[i] = row
-  end
-
-  alwaysScroll:SetScript("OnVerticalScroll", function()
-  FauxScrollFrame_OnVerticalScroll(arg1, rowH, UI_RefreshAlwaysList)
-end)
-
-  -- Cap list scroll + rows
-  local capScroll = CreateFrame("ScrollFrame", "BuzzKillCapScroll", midBox, "FauxScrollFrameTemplate")
-  capScroll:SetPoint("TOPLEFT", midBox, "TOPLEFT", 8, -8)
-  capScroll:SetPoint("BOTTOMRIGHT", midBox, "BOTTOMRIGHT", -8, 8)
-  f.capScroll = capScroll
-
-  f.capRows = {}
-  for i = 1, f.capVisible do
-    local row = CreateRow(midBox, panelW - 52, rowH)
-    row:SetPoint("TOPLEFT", midBox, "TOPLEFT", 8, -8 - (i-1)*rowH)
-    f.capRows[i] = row
-  end
-
-  capScroll:SetScript("OnVerticalScroll", function()
-  FauxScrollFrame_OnVerticalScroll(arg1, rowH, UI_RefreshCapList)
-end)
-
-  -- Active list scroll + rows
-  local activeScroll = CreateFrame("ScrollFrame", "BuzzKillActiveScroll", rightBox, "FauxScrollFrameTemplate")
-  activeScroll:SetPoint("TOPLEFT", rightBox, "TOPLEFT", 8, -8)
-  activeScroll:SetPoint("BOTTOMRIGHT", rightBox, "BOTTOMRIGHT", -8, 8)
-  f.activeScroll = activeScroll
-
+  f.capRows    = {}
   f.activeRows = {}
-  for i = 1, f.activeVisible do
-    local row = CreateRow(rightBox, panelW - 36, rowH)
-    row:SetPoint("TOPLEFT", rightBox, "TOPLEFT", 8, -8 - (i-1)*rowH)
-    f.activeRows[i] = row
-  end
 
-  activeScroll:SetScript("OnVerticalScroll", function()
-  FauxScrollFrame_OnVerticalScroll(arg1, rowH, UI_RefreshActiveList)
-end)
 
   f:Hide()
 end
