@@ -603,13 +603,13 @@ end
   -- Scroll settings
   f.rowH = rowH
   f.alwaysVisible = 10
-  f.capVisible = 10
+  f.capVisible = 9
   f.activeVisible = 10
 
   -- Always list scroll + rows
   local alwaysScroll = CreateFrame("ScrollFrame", "BuzzKillAlwaysScroll", leftBox, "FauxScrollFrameTemplate")
   alwaysScroll:SetPoint("TOPLEFT", leftBox, "TOPLEFT", 8, -8)
-  alwaysScroll:SetPoint("BOTTOMRIGHT", leftBox, "BOTTOMRIGHT", -28, 8)
+  alwaysScroll:SetPoint("BOTTOMRIGHT", leftBox, "BOTTOMRIGHT", -8, 8)
   f.alwaysScroll = alwaysScroll
 
   f.alwaysRows = {}
@@ -626,7 +626,7 @@ end
   -- Cap list scroll + rows
   local capScroll = CreateFrame("ScrollFrame", "BuzzKillCapScroll", midBox, "FauxScrollFrameTemplate")
   capScroll:SetPoint("TOPLEFT", midBox, "TOPLEFT", 8, -8)
-  capScroll:SetPoint("BOTTOMRIGHT", midBox, "BOTTOMRIGHT", -28, 8)
+  capScroll:SetPoint("BOTTOMRIGHT", midBox, "BOTTOMRIGHT", -8, 8)
   f.capScroll = capScroll
 
   f.capRows = {}
@@ -643,7 +643,7 @@ end
   -- Active list scroll + rows
   local activeScroll = CreateFrame("ScrollFrame", "BuzzKillActiveScroll", rightBox, "FauxScrollFrameTemplate")
   activeScroll:SetPoint("TOPLEFT", rightBox, "TOPLEFT", 8, -8)
-  activeScroll:SetPoint("BOTTOMRIGHT", rightBox, "BOTTOMRIGHT", -28, 8)
+  activeScroll:SetPoint("BOTTOMRIGHT", rightBox, "BOTTOMRIGHT", -8, 8)
   f.activeScroll = activeScroll
 
   f.activeRows = {}
