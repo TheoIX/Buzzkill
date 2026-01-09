@@ -409,7 +409,7 @@ local function UI_Build()
 
   local sub = f:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
   sub:SetPoint("TOPLEFT", title, "BOTTOMLEFT", 0, -4)
-  sub:SetText("Always removes selected buffs, and trims a priority list when you hit buff cap.")
+  sub:SetText("v1.2 TheoIX.")
 
   -- Debug checkbox
   local dbg = CreateFrame("CheckButton", nil, f, "UICheckButtonTemplate")
